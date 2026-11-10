@@ -124,8 +124,8 @@ def handle_missions(data, args):
         print_table(("ID", "Mission", "Destination", "Status", "Payload", "Orbit"), rows)
         return
     if args.mission_action == "add":
-        if args.payload <= 0 or args.altitude < 0:
-            raise ValueError("Payload must be positive and altitude cannot be negative.")
+        if not math.isfinite(args.payload) or not math.isfinite(args.altitude) or args.payload <= 0 or args.altitude < 0:
+            raise ValueError("Payload must be positive and altitude must be a finite non-negative number.")
         mission = {
             "id": next_mission_id(data),
             "name": args.name,
@@ -162,8 +162,8 @@ def handle_vehicles(data, args):
 
 
 def handle_orbit(data, args):
-    if args.altitude < 0:
-        raise ValueError("Altitude cannot be negative.")
+    if not math.isfinite(args.altitude) or args.altitude < 0:
+        raise ValueError("Altitude must be a finite non-negative number.")
     speed = orbital_speed(args.altitude)
     period_minutes = orbital_period(args.altitude) / 60
     delta_v = transfer_delta_v(args.altitude)
@@ -189,7 +189,7 @@ def handle_vehicles_select(data, args):
 def make_parser():
     parser = argparse.ArgumentParser(prog="azurefrost", description="Portable space mission planning console")
     parser.add_argument("--data", type=Path, default=default_data_path(), help="Path to the JSON program data file")
-    commands = parser.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(dest="command")
     commands.add_parser("status", help="Show program activity")
     missions = commands.add_parser("missions", help="Manage missions")
     mission_commands = missions.add_subparsers(dest="mission_action", required=True)
@@ -212,11 +212,78 @@ def make_parser():
     return parser
 
 
+def interactive(data, data_path):
+    while True:
+        print(f"\n{APP_NAME}")
+        print("1. Program status")
+        print("2. List missions")
+        print("3. Add mission")
+        print("4. List launch vehicles")
+        print("5. Calculate an orbit")
+        print("6. Recommend a vehicle")
+        print("0. Exit")
+        try:
+            choice = input("Select an option: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye.")
+            return 0
+        try:
+            if choice == "0":
+                print("Goodbye.")
+                return 0
+            if choice == "1":
+                handle_status(data, None)
+            elif choice == "2":
+                print_table(
+                    ("ID", "Mission", "Destination", "Status", "Payload", "Orbit"),
+                    [(mission["id"], mission["name"], mission["destination"], mission["status"],
+                      f"{mission['payload_kg']:,.0f} kg", f"{mission['altitude_km']:,.0f} km")
+                     for mission in sorted(data["missions"], key=lambda item: item["id"])],
+                )
+            elif choice == "3":
+                name = input("Mission name: ").strip()
+                destination = input("Destination [Low Earth Orbit]: ").strip() or "Low Earth Orbit"
+                payload = float(input("Payload mass in kilograms: ").strip())
+                altitude = float(input("Target altitude in kilometers [400]: ").strip() or "400")
+                if not name:
+                    raise ValueError("Mission name cannot be empty.")
+                if not math.isfinite(payload) or not math.isfinite(altitude) or payload <= 0 or altitude < 0:
+                    raise ValueError("Payload must be positive and altitude must be a finite non-negative number.")
+                mission = {
+                    "id": next_mission_id(data),
+                    "name": name,
+                    "destination": destination,
+                    "payload_kg": payload,
+                    "altitude_km": altitude,
+                    "status": "planned",
+                    "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                }
+                data["missions"].append(mission)
+                save_store(data_path, data)
+                print(f"Added mission {mission['id']}: {mission['name']}.")
+            elif choice == "4":
+                handle_vehicles(data, None)
+            elif choice == "5":
+                altitude = float(input("Orbit altitude in kilometers: ").strip())
+                if not math.isfinite(altitude) or altitude < 0:
+                    raise ValueError("Altitude must be a finite non-negative number.")
+                handle_orbit(data, argparse.Namespace(altitude=altitude))
+            elif choice == "6":
+                mission_id = int(input("Mission ID: ").strip())
+                handle_vehicles_select(data, argparse.Namespace(mission_id=mission_id))
+            else:
+                print("Choose one of the listed options.")
+        except (ValueError, KeyError, TypeError) as error:
+            print(f"Error: {error}")
+
+
 def main(argv=None):
     parser = make_parser()
     args = parser.parse_args(argv)
     try:
         data = load_store(args.data)
+        if args.command is None:
+            return interactive(data, args.data)
         handlers = {
             "status": handle_status,
             "missions": handle_missions,

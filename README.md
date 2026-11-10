@@ -7,8 +7,10 @@ Azurefrost Space Program is a small, portable command-line mission planning cons
 Use Python 3.9 or newer:
 
 ```text
-python main.py --help
+python main.py
 ```
+
+Running without arguments opens the interactive planning menu. Add `--help` to see the command-line options.
 
 On systems where Python is installed as `python3`, use `python3 main.py` instead.
 
